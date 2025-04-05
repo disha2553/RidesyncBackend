@@ -1,0 +1,13 @@
+myenv/
+
+#Api Key
+config.py
+
+__pycache__/
+*.pyc 
+*.pyo 
+*.env  
+.firebaserc 
+firebase.json
+firebase-admin.json
+*.log
