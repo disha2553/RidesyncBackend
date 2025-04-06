@@ -29,7 +29,7 @@ swaggerui_blueprint = get_swaggerui_blueprint(
     SWAGGER_URL,
     API_URL,
     config={
-        'app_name': "CoDrive"
+        'app_name': "RideSync"
     }
 )
 app.register_blueprint(swaggerui_blueprint, url_prefix=SWAGGER_URL)
@@ -422,6 +422,8 @@ def join_ride():
         userId = request.args.get('userId')
         rideId = request.args.get('rideId')
         amount = float(request.args.get('amount'))
+        payment_mode = request.args.get('payment_mode')  # This line adds the field
+
 
         # Pickup Latitude, Longitude & String
         p_lat = float(request.args.get('p_lat'))
@@ -457,6 +459,7 @@ def join_ride():
             "Amount": amount,
             "Status": "Requested",
             "CompletionCode": random.randint(10000, 99999),
+            'PaymentMode': payment_mode,
         }
 
         doc_ref.set(ride_data)
@@ -563,6 +566,32 @@ def complete_corider_ride():
             return jsonify({"error": "Error in ride completion"}), 500
     return None
 
+@app.route('/complete_corider_cash', methods=['GET'])
+def complete_corider_cash():
+    rideId = request.args.get('rideId')
+    coriderId = request.args.get('coriderId')
+
+    rideDoc = rideRef.document(rideId)
+    coriders = rideDoc.collection("CoRiders")
+    coriderRef = coriders.document(coriderId)
+    corider = coriderRef.get()
+    rideDocGet = rideDoc.get()
+
+    if corider.exists:
+        data = corider.to_dict()
+        if data["Status"] == "Joined":
+            if rideDocGet.exists:
+                ride_data = rideDocGet.to_dict()
+                coRiderMainDocRef = userRef.document(data["CoRider"].id)
+                # No wallet, so skip balance logic
+                rideDoc.update({"Updated": ride_data["Updated"] + 1})
+                coRiderMainDocRef.update({"IsOnRide": [False, rideId]})
+            coriderRef.update({"Status": "Completed", "DropTime": SERVER_TIMESTAMP})
+            return jsonify({"message": "Ride is completed with cash"}), 200
+        else:
+            return jsonify({"error": "Corider already completed or not joined"}), 400
+    return jsonify({"error": "Corider not found"}), 404
+
 @app.route('/complete_driver_ride', methods=['GET'])
 def complete_driver_ride():
     rideId = request.args.get('rideId')
@@ -586,17 +615,28 @@ def complete_driver_ride():
             coRidersSnapshot = coRidersCollection.where("Status", "==", "Completed").get()
 
             # Calculate total amount earned from all co-riders
-            totalEarnings = sum([coRider.to_dict().get("Amount", 0) for coRider in coRidersSnapshot])
+            walletEarnings = 0
+            cashEarnings = 0
+
+            for coRiderDoc in coRidersSnapshot:
+                coRider = coRiderDoc.to_dict()
+                amount = coRider.get("Amount", 0)
+                paymentMode = coRider.get("PaymentMode", "cash")  # Default to cash if not set
+
+                if paymentMode == "wallet":
+                    walletEarnings += amount
+                else:
+                    cashEarnings += amount
 
             # Update driver's balance
             driverBalance = driverData.get("Balance", 0)
-            updatedDriverBalance = driverBalance + totalEarnings
+            updatedDriverBalance = driverBalance + walletEarnings
 
             # Add a transaction entry for the driver
             transactionRef = driverDocRef.collection("Transactions").document()
             transactionRef.set({
                 "Message": "Earnings from Ride",
-                "Amount": totalEarnings,
+                "Amount": walletEarnings,
                 "RideId": rideId,
                 "Time": SERVER_TIMESTAMP,
                 "Type": "Credit"
@@ -606,8 +646,7 @@ def complete_driver_ride():
             driverDocRef.update({"IsOnRide": [False, rideId], "Balance": updatedDriverBalance})
             rideDocRef.update({"Status": "Completed"})
 
-            return jsonify({"message": "Ride completed successfully, driver paid ₹{}".format(totalEarnings)}), 200
-
+            return jsonify({ "message": f"Ride completed successfully.", "walletEarnings": walletEarnings, "cashEarnings": cashEarnings}), 200
         else:
             return jsonify({"error": "Ride is not assigned to any driver"}), 500
 

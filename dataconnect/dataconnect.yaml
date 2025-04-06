@@ -1,5 +1,5 @@
 specVersion: "v1beta"
-serviceId: "codrivebackend-master"
+serviceId: "ridesyncbackend-master"
 location: "us-central1"
 schema:
   source: "./schema"
@@ -7,6 +7,6 @@ schema:
     postgresql:
       database: "fdcdb"
       cloudSql:
-        instanceId: "codrivebackend-master-fdc"
+        instanceId: "ridesyncbackend-master-fdc"
       # schemaValidation: "COMPATIBLE"
 connectorDirs: ["./connector"]
